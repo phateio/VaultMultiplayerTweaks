@@ -14,12 +14,11 @@ import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
-import static io.github.phateio.vaultMultiplayerTweaks.nms.VaultAccess.getRewardedPlayers;
-import static io.github.phateio.vaultMultiplayerTweaks.nms.VaultAccess.removePlayer;
 import static org.bukkit.block.data.type.Vault.State;
 
 public final class VaultMultiplayerTweaks extends JavaPlugin implements Listener {
@@ -48,7 +47,7 @@ public final class VaultMultiplayerTweaks extends JavaPlugin implements Listener
 
         var pdc = v.getPersistentDataContainer();
 
-        if (!pdc.has(KEY_COOLDOWN)) removePlayer(v, getRewardedPlayers(v));
+        if (!pdc.has(KEY_COOLDOWN)) removePlayers(v, v.getRewardedPlayers());
 
         final var now = System.currentTimeMillis();
         List<PlayerVaultData> playerList = new ArrayList<>(pdc.getOrDefault(KEY_COOLDOWN, listPVDType, new ArrayList<>()));
@@ -73,12 +72,12 @@ public final class VaultMultiplayerTweaks extends JavaPlugin implements Listener
         if (e.getHand() != EquipmentSlot.HAND) return;
         if (!(e.getClickedBlock().getState(false) instanceof Vault v)) return;
         if (!(v.getBlockData() instanceof org.bukkit.block.data.type.Vault vState)
-                || vState.getTrialSpawnerState() != State.INACTIVE) return;
+                || vState.getVaultState() != State.INACTIVE) return;
 
         var pdc = v.getPersistentDataContainer();
 
         if (!pdc.has(KEY_COOLDOWN)) { // new Vault
-            removePlayer(v, getRewardedPlayers(v));
+            removePlayers(v, v.getRewardedPlayers());
             pdc.set(KEY_COOLDOWN, listPVDType, Collections.emptyList());
             return;
         }
@@ -107,10 +106,14 @@ public final class VaultMultiplayerTweaks extends JavaPlugin implements Listener
             else removePlayers.add(pvd.uuid());
         }
         if (!removePlayers.isEmpty()) {
-            removePlayer(v, removePlayers);
+            removePlayers(v, removePlayers);
             playerList = playerList.subList(idx, playerList.size());
         }
         return playerList;
+    }
+
+    private static void removePlayers(Vault v, Collection<UUID> players) {
+        for (UUID uuid : players) v.removeRewardedPlayer(uuid);
     }
 
 }

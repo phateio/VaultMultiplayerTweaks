@@ -1,9 +1,7 @@
-import io.papermc.paperweight.userdev.ReobfArtifactConfiguration
-
 plugins {
     id 'java'
     id 'net.minecrell.plugin-yml.bukkit' version '0.6.0'
-    id "io.papermc.paperweight.userdev" version "1.7.3"
+    id "io.papermc.paperweight.userdev" version "2.0.0-beta.21"
 }
 
 group = 'io.github.phateio'
@@ -22,33 +20,23 @@ repositories {
 }
 
 dependencies {
-//    compileOnly("io.papermc.paper:paper-api:1.21.1-R0.1-SNAPSHOT")
-    paperweight.paperDevBundle("1.21.1-R0.1-SNAPSHOT")
+    paperweight.paperDevBundle("26.1.2.build.+")
 }
-paperweight.reobfArtifactConfiguration = ReobfArtifactConfiguration.getMOJANG_PRODUCTION()
 
-def targetJavaVersion = 21
+def targetJavaVersion = 25
 java {
-    def javaVersion = JavaVersion.toVersion(targetJavaVersion)
-    sourceCompatibility = javaVersion
-    targetCompatibility = javaVersion
-    if (JavaVersion.current() < javaVersion) {
-        toolchain.languageVersion = JavaLanguageVersion.of(targetJavaVersion)
-    }
+    toolchain.languageVersion = JavaLanguageVersion.of(targetJavaVersion)
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
-
-    if (targetJavaVersion >= 10 || JavaVersion.current().isJava10Compatible()) {
-        options.release.set(targetJavaVersion)
-    }
+    options.release.set(targetJavaVersion)
 }
 
 bukkit {
     name = project.name
     version = project.version
     main = 'io.github.phateio.vaultMultiplayerTweaks.VaultMultiplayerTweaks'
-    apiVersion = '1.13'
+    apiVersion = '1.21'
     author = "WhiteCat"
 }
