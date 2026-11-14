@@ -18,7 +18,7 @@ class VaultCooldownsTest {
     @Test
     void firstInteractTakesOverVaultAndForgetsVanillaRewards() {
         v.rewarded.add(alice); // claimed before the plugin was installed
-        assertTrue(c.onInteract(v, true, 0));
+        assertTrue(c.onInteract(v, 0));
         assertTrue(v.hasLedger());
         assertEquals(List.of(), v.entries);
         assertNull(v.nextRefresh);
@@ -38,7 +38,7 @@ class VaultCooldownsTest {
     @Test
     void cannotReclaimBeforeCooldownEnds() {
         v.claim(c, alice, 0);
-        assertFalse(c.onInteract(v, true, CD - 1));
+        assertFalse(c.onInteract(v, CD - 1));
         assertTrue(v.rewarded.contains(alice));
     }
 
@@ -46,7 +46,7 @@ class VaultCooldownsTest {
     void cooldownExpiryLetsPlayerClaimAgain() {
         v.claim(c, alice, 0);
         v.claim(c, bob, 500);
-        assertTrue(c.onInteract(v, true, CD));
+        assertTrue(c.onInteract(v, CD));
         assertFalse(v.rewarded.contains(alice));
         assertTrue(v.rewarded.contains(bob));
         assertEquals(List.of(new PlayerVaultData(bob, 500 + CD)), v.entries);
@@ -56,10 +56,10 @@ class VaultCooldownsTest {
     @Test
     void lastExpiryClearsNextRefresh() {
         v.claim(c, alice, 0);
-        c.onInteract(v, true, CD);
+        c.onInteract(v, CD);
         assertEquals(List.of(), v.entries);
         assertNull(v.nextRefresh);
-        assertFalse(c.onInteract(v, true, 10 * CD)); // nothing pending: no write
+        assertFalse(c.onInteract(v, 10 * CD)); // nothing pending: no write
     }
 
     @Test

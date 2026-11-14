@@ -31,7 +31,7 @@ final class FakeVaultStore implements VaultStore {
 
     /** Vanilla's check in tryInsertKey after the plugin's PlayerInteractEvent handler has run. */
     boolean canClaim(VaultCooldowns c, UUID player, boolean inactive, long now) {
-        c.onInteract(this, inactive, now);
+        c.onInteract(this, now);
         return !inactive && !rewarded.contains(player);
     }
 }

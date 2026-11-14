@@ -1,5 +1,7 @@
 package io.github.phateio.vaultMultiplayerTweaks;
 
+import org.jetbrains.annotations.Nullable;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -25,19 +27,18 @@ final class VaultCooldowns {
         Long next = vault.nextRefresh();
         if (next != null && next <= now) entries = expire(vault, now, entries);
 
+        entries.removeIf(e -> e.uuid().equals(player)); // one entry per player: the latest claim wins
         entries.add(new PlayerVaultData(player, now + cooldownMillis));
-        vault.save(entries, entries.getFirst().next());
+        vault.save(entries, earliest(entries));
     }
 
     /**
-     * A player right-clicked the vault, before vanilla handles the key.
+     * A player right-clicked the vault, before vanilla handles the key. Runs in any vault state, so an
+     * expired player is released even while other players keep the vault ACTIVE.
      *
-     * @param inactive whether the vault block is currently in the INACTIVE state
      * @return whether the vault was modified (caller must flush it)
      */
-    boolean onInteract(VaultStore vault, boolean inactive, long now) {
-        if (!inactive) return false;
-
+    boolean onInteract(VaultStore vault, long now) {
         if (!vault.hasLedger()) { // vault not yet managed by the plugin
             unrewardAll(vault);
             vault.save(Collections.emptyList(), null);
@@ -48,7 +49,7 @@ final class VaultCooldowns {
         if (next == null || next > now) return false;
 
         List<PlayerVaultData> entries = expire(vault, now, new ArrayList<>(vault.entries()));
-        vault.save(entries, entries.isEmpty() ? null : entries.getFirst().next());
+        vault.save(entries, earliest(entries));
         return true;
     }
 
@@ -56,13 +57,17 @@ final class VaultCooldowns {
         for (UUID uuid : vault.rewardedPlayers()) vault.unreward(uuid);
     }
 
+    /** Release every due entry; entries need not be sorted (cooldown may change between claims). */
     private static List<PlayerVaultData> expire(VaultStore vault, long now, List<PlayerVaultData> entries) {
-        int idx = 0;
-        for (; idx < entries.size(); idx++) {
-            PlayerVaultData pvd = entries.get(idx);
-            if (pvd.next() > now) break;
-            vault.unreward(pvd.uuid());
+        List<PlayerVaultData> remaining = new ArrayList<>(entries.size());
+        for (PlayerVaultData pvd : entries) {
+            if (pvd.next() > now) remaining.add(pvd);
+            else vault.unreward(pvd.uuid());
         }
-        return new ArrayList<>(entries.subList(idx, entries.size()));
+        return remaining;
+    }
+
+    private static @Nullable Long earliest(List<PlayerVaultData> entries) {
+        return entries.stream().map(PlayerVaultData::next).min(Long::compare).orElse(null);
     }
 }

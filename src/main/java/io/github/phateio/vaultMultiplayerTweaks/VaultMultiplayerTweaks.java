@@ -4,6 +4,7 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.block.Vault;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockDispenseLootEvent;
@@ -18,8 +19,6 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
-
-import static org.bukkit.block.data.type.Vault.State;
 
 public final class VaultMultiplayerTweaks extends JavaPlugin implements Listener {
 
@@ -41,7 +40,8 @@ public final class VaultMultiplayerTweaks extends JavaPlugin implements Listener
         getServer().getPluginManager().registerEvents(this, this);
     }
 
-    @EventHandler(ignoreCancelled = true)
+    // MONITOR: record the cooldown only once no other plugin can still cancel the loot.
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onVaultDropLoot(BlockDispenseLootEvent e) {
         // getState(false): operate on the live block entity, not a copy.
         if (!(e.getBlock().getState(false) instanceof Vault v)) return;
@@ -57,10 +57,8 @@ public final class VaultMultiplayerTweaks extends JavaPlugin implements Listener
         if (e.getHand() != EquipmentSlot.HAND) return;
         if (e.getClickedBlock() == null) return;
         if (!(e.getClickedBlock().getState(false) instanceof Vault v)) return;
-        if (!(v.getBlockData() instanceof org.bukkit.block.data.type.Vault vState)) return;
 
-        boolean inactive = vState.getVaultState() == State.INACTIVE;
-        if (cooldowns.onInteract(new BukkitVaultStore(v), inactive, System.currentTimeMillis())) v.update();
+        if (cooldowns.onInteract(new BukkitVaultStore(v), System.currentTimeMillis())) v.update();
     }
 
     /** {@link VaultStore} backed by a live (non-snapshot) vault block state. */
