@@ -5,50 +5,74 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.block.BlockDispenseLootEvent;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Bugs inherited from v1 (red on the original logic). */
+/** Bugs inherited from v1 (each red on the v1 logic). */
 class V1LogicBugsTest {
-    static final long CD = 1_000;
-    final FakeVaultStore v = new FakeVaultStore();
+    static final long COOLDOWN = 1_000;
+    final FakeVaultStore vault = new FakeVaultStore();
     final UUID alice = new UUID(0, 1), bob = new UUID(0, 2);
 
-    /** A: someone else keeps the vault ACTIVE; alice's cooldown has ended but she is still refused. */
+    /** A: bob (not yet rewarded) keeps the vault ACTIVE; alice's cooldown has ended, she must get in. */
     @Test
     void expiredPlayerCanClaimWhileVaultIsActive() {
-        VaultCooldowns c = new VaultCooldowns(CD);
-        v.claim(c, alice, 0);
-        assertTrue(v.canClaim(c, alice, false, CD + 1));
+        VaultCooldowns rules = new VaultCooldowns(COOLDOWN);
+        vault.nearby.add(alice);
+        vault.tick();
+        assertTrue(vault.insertKey(rules, alice, 0));
+        vault.nearby.add(bob);
+        vault.tick();
+        assertEquals(FakeVaultStore.State.ACTIVE, vault.state);
+        assertTrue(vault.insertKey(rules, alice, COOLDOWN + 1));
     }
 
-    /** B1: a second ledger entry for the same player (e.g. loot recorded, then cancelled by a later plugin). */
+    /** B1: the same player claims again (e.g. after vanilla's 128-player cap evicted them). */
     @Test
     void reclaimReplacesOldEntryInsteadOfDuplicating() {
-        VaultCooldowns c = new VaultCooldowns(CD);
-        c.onLootDispensed(v, alice, 0);   // recorded, but another plugin cancelled: never rewarded
-        v.claim(c, alice, 500);           // real claim, cooldown until 1500
-        assertEquals(List.of(new PlayerVaultData(alice, 500 + CD)), v.entries);
-        c.onInteract(v, CD);        // stale entry due: must not unlock alice early
-        assertTrue(v.rewarded.contains(alice));
+        VaultCooldowns rules = new VaultCooldowns(COOLDOWN);
+        rules.onLootDispensed(vault, alice, 0);
+        rules.onLootDispensed(vault, alice, 500);
+        vault.rewarded.add(alice);
+        assertEquals(List.of(new PlayerVaultData(alice, 500 + COOLDOWN)), vault.entries);
+        rules.onInteract(vault, COOLDOWN); // the replaced entry's time: must not release alice
+        assertTrue(vault.rewarded.contains(alice));
     }
 
-    /** B2: cooldown shortened in config; a newer, shorter entry sits behind an older, longer one. */
+    /** B2: a ledger written by v1 may already hold duplicates; the stale one must not release early. */
+    @Test
+    void staleDuplicateFromV1DoesNotReleaseEarly() {
+        VaultCooldowns rules = new VaultCooldowns(COOLDOWN);
+        vault.entries = new ArrayList<>(List.of(new PlayerVaultData(alice, COOLDOWN), new PlayerVaultData(alice, COOLDOWN + 500)));
+        vault.nextRefresh = COOLDOWN;
+        vault.rewarded.add(alice);
+        rules.onInteract(vault, COOLDOWN);
+        assertTrue(vault.rewarded.contains(alice));
+        assertEquals(List.of(new PlayerVaultData(alice, COOLDOWN + 500)), vault.entries);
+        assertEquals(COOLDOWN + 500, vault.nextRefresh);
+    }
+
+    /** B3: cooldown shortened in config; a newer, shorter entry sits behind an older, longer one. */
     @Test
     void shorterCooldownAfterConfigChangeIsNotBlockedByOlderEntry() {
-        new VaultCooldowns(10 * CD).onLootDispensed(v, alice, 0); // until 10000
-        v.rewarded.add(alice);
-        VaultCooldowns shorter = new VaultCooldowns(CD);
-        v.claim(shorter, bob, 100);                                 // until 1100
-        assertEquals(100 + CD, v.nextRefresh);
-        assertTrue(shorter.onInteract(v, 100 + CD));
-        assertFalse(v.rewarded.contains(bob));
-        assertTrue(v.rewarded.contains(alice));
+        new VaultCooldowns(10 * COOLDOWN).onLootDispensed(vault, alice, 0); // until 10000
+        vault.rewarded.add(alice);
+        VaultCooldowns shorter = new VaultCooldowns(COOLDOWN);
+        shorter.onLootDispensed(vault, bob, 100);                           // until 1100
+        vault.rewarded.add(bob);
+        assertEquals(100 + COOLDOWN, vault.nextRefresh);
+        assertTrue(shorter.onInteract(vault, 100 + COOLDOWN));
+        assertFalse(vault.rewarded.contains(bob));
+        assertTrue(vault.rewarded.contains(alice));
     }
 
-    /** C: only record a cooldown once no other plugin can cancel the loot. */
+    /**
+     * C: only record a cooldown once no other plugin can cancel the loot. Pins the declaration only:
+     * Bukkit's priority ordering itself is not exercised here.
+     */
     @Test
     void lootListenerRunsAtMonitor() throws Exception {
         EventHandler h = VaultMultiplayerTweaks.class

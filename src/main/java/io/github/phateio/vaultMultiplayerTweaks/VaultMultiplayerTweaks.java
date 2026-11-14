@@ -22,8 +22,9 @@ import java.util.UUID;
 
 public final class VaultMultiplayerTweaks extends JavaPlugin implements Listener {
 
-    private final NamespacedKey KEY_COOLDOWN = NamespacedKey.fromString("rewarded_cooldown", this);
-    private final NamespacedKey KEY_NEXT = NamespacedKey.fromString("refresh_next", this);
+    // PDC key names are kept from v1 so existing vault data stays readable.
+    private final NamespacedKey KEY_LEDGER = NamespacedKey.fromString("rewarded_cooldown", this);
+    private final NamespacedKey KEY_NEXT_REFRESH = NamespacedKey.fromString("refresh_next", this);
     private final ListPersistentDataType<byte[], PlayerVaultData> listPVDType = PersistentDataType.LIST.listTypeFrom(PlayerVaultData.TYPE);
 
     private VaultCooldowns cooldowns;
@@ -40,7 +41,8 @@ public final class VaultMultiplayerTweaks extends JavaPlugin implements Listener
         getServer().getPluginManager().registerEvents(this, this);
     }
 
-    // MONITOR: record the cooldown only once no other plugin can still cancel the loot.
+    // MONITOR: record the cooldown only once no other plugin can still cancel the loot. This writes only
+    // the plugin's own PDC ledger (plus the rewarded set it manages), not the event or the loot.
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onVaultDropLoot(BlockDispenseLootEvent e) {
         // getState(false): operate on the live block entity, not a copy.
@@ -73,29 +75,29 @@ public final class VaultMultiplayerTweaks extends JavaPlugin implements Listener
 
         @Override
         public boolean hasLedger() {
-            return pdc.has(KEY_COOLDOWN);
+            return pdc.has(KEY_LEDGER);
         }
 
         @Override
         public List<PlayerVaultData> entries() {
-            return pdc.getOrDefault(KEY_COOLDOWN, listPVDType, List.of());
+            return pdc.getOrDefault(KEY_LEDGER, listPVDType, List.of());
         }
 
         @Override
         public @Nullable Long nextRefresh() {
-            return pdc.get(KEY_NEXT, PersistentDataType.LONG);
+            return pdc.get(KEY_NEXT_REFRESH, PersistentDataType.LONG);
         }
 
         @Override
         public void save(List<PlayerVaultData> entries, @Nullable Long nextRefresh) {
-            pdc.set(KEY_COOLDOWN, listPVDType, entries);
-            if (nextRefresh == null) pdc.remove(KEY_NEXT);
-            else pdc.set(KEY_NEXT, PersistentDataType.LONG, nextRefresh);
+            pdc.set(KEY_LEDGER, listPVDType, entries);
+            if (nextRefresh == null) pdc.remove(KEY_NEXT_REFRESH);
+            else pdc.set(KEY_NEXT_REFRESH, PersistentDataType.LONG, nextRefresh);
         }
 
         @Override
         public Collection<UUID> rewardedPlayers() {
-            return vault.getRewardedPlayers();
+            return List.copyOf(vault.getRewardedPlayers()); // callers remove while iterating
         }
 
         @Override

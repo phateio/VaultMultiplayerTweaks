@@ -14,12 +14,15 @@ repositories {
     }
 }
 
+def paperApi = "io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT"
+def javaVersion = 25
+
 dependencies {
     // The plugin only uses the public Vault API (no NMS), so the plain API jar is enough.
     // Target server: Leaves/Paper 1.21.11.
-    compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
+    compileOnly(paperApi)
 
-    testImplementation("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
+    testImplementation(paperApi)
     testImplementation(platform("org.junit:junit-bom:5.13.4"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -27,12 +30,12 @@ dependencies {
 
 // Compile and target Java 25 (as in PR #1; teatech runs Java 25).
 java {
-    toolchain.languageVersion = JavaLanguageVersion.of(25)
+    toolchain.languageVersion = JavaLanguageVersion.of(javaVersion)
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
-    options.release.set(25)
+    options.release.set(javaVersion)
 }
 
 tasks.named('test') {

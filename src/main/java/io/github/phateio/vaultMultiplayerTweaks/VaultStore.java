@@ -21,10 +21,10 @@ interface VaultStore {
     /** Earliest time (epoch millis) at which some entry may have expired, or null when nothing is pending. */
     @Nullable Long nextRefresh();
 
-    /** Persist the ledger; a null {@code nextRefresh} clears it. */
+    /** Persist the ledger and its earliest expiry ({@code null} when the ledger is empty). */
     void save(List<PlayerVaultData> entries, @Nullable Long nextRefresh);
 
-    /** Snapshot of the vanilla rewarded-players set. */
+    /** Snapshot (a copy) of the vanilla rewarded-players set. */
     Collection<UUID> rewardedPlayers();
 
     /** Remove one player from the vanilla rewarded-players set, letting them open the vault again. */
