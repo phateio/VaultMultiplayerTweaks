@@ -19,20 +19,20 @@ dependencies {
     // Target server: Leaves/Paper 1.21.11.
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
 
+    testImplementation("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     testImplementation(platform("org.junit:junit-bom:5.13.4"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
-// Compile with a JDK 25 toolchain; emit Java 21 bytecode so the jar runs on any
-// 1.21.11 server (Paper 1.21.11 requires Java 21+; teatech runs Java 25).
+// Compile and target Java 25 (as in PR #1; teatech runs Java 25).
 java {
     toolchain.languageVersion = JavaLanguageVersion.of(25)
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
-    options.release.set(21)
+    options.release.set(25)
 }
 
 tasks.named('test') {

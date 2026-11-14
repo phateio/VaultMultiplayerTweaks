@@ -10,12 +10,12 @@ import org.bukkit.event.block.BlockDispenseLootEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.persistence.ListPersistentDataType;
+import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -23,11 +23,11 @@ import static org.bukkit.block.data.type.Vault.State;
 
 public final class VaultMultiplayerTweaks extends JavaPlugin implements Listener {
 
-    private long CONFIG_VAULT_COOLDOWN;
     private final NamespacedKey KEY_COOLDOWN = NamespacedKey.fromString("rewarded_cooldown", this);
     private final NamespacedKey KEY_NEXT = NamespacedKey.fromString("refresh_next", this);
     private final ListPersistentDataType<byte[], PlayerVaultData> listPVDType = PersistentDataType.LIST.listTypeFrom(PlayerVaultData.TYPE);
 
+    private VaultCooldowns cooldowns;
 
     @Override
     public void onEnable() {
@@ -36,33 +36,18 @@ public final class VaultMultiplayerTweaks extends JavaPlugin implements Listener
         config.options().copyDefaults(true);
         saveConfig();
 
-        CONFIG_VAULT_COOLDOWN = config.getLong("vault_cooldown_sec");
+        cooldowns = new VaultCooldowns(config.getLong("vault_cooldown_sec") * 1000);
 
         getServer().getPluginManager().registerEvents(this, this);
     }
 
     @EventHandler(ignoreCancelled = true)
     public void onVaultDropLoot(BlockDispenseLootEvent e) {
+        // getState(false): operate on the live block entity, not a copy.
         if (!(e.getBlock().getState(false) instanceof Vault v)) return;
+        if (e.getPlayer() == null) return;
 
-        var pdc = v.getPersistentDataContainer();
-
-        if (!pdc.has(KEY_COOLDOWN)) removePlayers(v, v.getRewardedPlayers());
-
-        final var now = System.currentTimeMillis();
-        List<PlayerVaultData> playerList = new ArrayList<>(pdc.getOrDefault(KEY_COOLDOWN, listPVDType, new ArrayList<>()));
-
-        var nextUpdate = pdc.get(KEY_NEXT, PersistentDataType.LONG);
-        if (nextUpdate != null && nextUpdate <= now) {
-            playerList = refreshVault(v, now, playerList);
-        }
-
-        playerList.add(new PlayerVaultData(e.getPlayer().getUniqueId(), now + CONFIG_VAULT_COOLDOWN * 1000));
-        nextUpdate = playerList.getFirst().next();
-
-        pdc.set(KEY_COOLDOWN, listPVDType, playerList);
-        pdc.set(KEY_NEXT, PersistentDataType.LONG, nextUpdate);
-
+        cooldowns.onLootDispensed(new BukkitVaultStore(v), e.getPlayer().getUniqueId(), System.currentTimeMillis());
         v.update();
     }
 
@@ -70,50 +55,54 @@ public final class VaultMultiplayerTweaks extends JavaPlugin implements Listener
     public void onPlayerRightClickVault(PlayerInteractEvent e) {
         if (e.getAction() != Action.RIGHT_CLICK_BLOCK) return;
         if (e.getHand() != EquipmentSlot.HAND) return;
+        if (e.getClickedBlock() == null) return;
         if (!(e.getClickedBlock().getState(false) instanceof Vault v)) return;
-        if (!(v.getBlockData() instanceof org.bukkit.block.data.type.Vault vState)
-                || vState.getVaultState() != State.INACTIVE) return;
+        if (!(v.getBlockData() instanceof org.bukkit.block.data.type.Vault vState)) return;
 
-        var pdc = v.getPersistentDataContainer();
-
-        if (!pdc.has(KEY_COOLDOWN)) { // new Vault
-            removePlayers(v, v.getRewardedPlayers());
-            pdc.set(KEY_COOLDOWN, listPVDType, Collections.emptyList());
-            return;
-        }
-
-        var nextUpdate = pdc.get(KEY_NEXT, PersistentDataType.LONG);
-        if (nextUpdate == null) return;
-        final var now = System.currentTimeMillis();
-        if (nextUpdate > now) return;
-
-        List<PlayerVaultData> playerList = new ArrayList<>(pdc.getOrDefault(KEY_COOLDOWN, listPVDType, new ArrayList<>()));
-        playerList = refreshVault(v, now, playerList);
-
-        if (playerList.isEmpty()) pdc.remove(KEY_NEXT);
-        else pdc.set(KEY_NEXT, PersistentDataType.LONG, playerList.getFirst().next());
-        pdc.set(KEY_COOLDOWN, listPVDType, playerList);
-
-        v.update();
+        boolean inactive = vState.getVaultState() == State.INACTIVE;
+        if (cooldowns.onInteract(new BukkitVaultStore(v), inactive, System.currentTimeMillis())) v.update();
     }
 
-    private List<PlayerVaultData> refreshVault(Vault v, long now, List<PlayerVaultData> playerList) {
-        var removePlayers = new ArrayList<UUID>(playerList.size());
-        int idx = 0;
-        for (; idx < playerList.size(); idx++) {
-            PlayerVaultData pvd = playerList.get(idx);
-            if (pvd.next() > now) break;
-            else removePlayers.add(pvd.uuid());
-        }
-        if (!removePlayers.isEmpty()) {
-            removePlayers(v, removePlayers);
-            playerList = playerList.subList(idx, playerList.size());
-        }
-        return playerList;
-    }
+    /** {@link VaultStore} backed by a live (non-snapshot) vault block state. */
+    private final class BukkitVaultStore implements VaultStore {
+        private final Vault vault;
+        private final PersistentDataContainer pdc;
 
-    private static void removePlayers(Vault v, Collection<UUID> players) {
-        for (UUID uuid : players) v.removeRewardedPlayer(uuid);
-    }
+        BukkitVaultStore(Vault vault) {
+            this.vault = vault;
+            this.pdc = vault.getPersistentDataContainer();
+        }
 
+        @Override
+        public boolean hasLedger() {
+            return pdc.has(KEY_COOLDOWN);
+        }
+
+        @Override
+        public List<PlayerVaultData> entries() {
+            return pdc.getOrDefault(KEY_COOLDOWN, listPVDType, List.of());
+        }
+
+        @Override
+        public @Nullable Long nextRefresh() {
+            return pdc.get(KEY_NEXT, PersistentDataType.LONG);
+        }
+
+        @Override
+        public void save(List<PlayerVaultData> entries, @Nullable Long nextRefresh) {
+            pdc.set(KEY_COOLDOWN, listPVDType, entries);
+            if (nextRefresh == null) pdc.remove(KEY_NEXT);
+            else pdc.set(KEY_NEXT, PersistentDataType.LONG, nextRefresh);
+        }
+
+        @Override
+        public Collection<UUID> rewardedPlayers() {
+            return vault.getRewardedPlayers();
+        }
+
+        @Override
+        public void unreward(UUID player) {
+            vault.removeRewardedPlayer(player);
+        }
+    }
 }
